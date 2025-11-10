@@ -85,22 +85,44 @@ module tb;
     logic [31:0] cur_val;
     logic [31:0] tmp;
 
-    // Основной тест 
+    // Основной тест
     initial begin
-        PRESETn = 0;    //сброс
+        logic [31:0] start_value;
+
+        // Получение значения из командной строки
+        if ($value$plusargs("START=%d", start_value)) begin
+            $display(">>> Value from command line: %0d", start_value);
+        end else begin
+            // Значение по умолчанию, если аргумент не указан
+            start_value = 32'd15;
+            $display(">>> Argument not entered. Using default value: %0d", start_value);
+            $display(">>> For using another value - enter: vvp tb.vvp +START=value");
+        end
+
+        // Проверка корректности значения
+        if (start_value > 1000) begin
+            $display(">>> WARNING: valuse %0d very big, using 100", start_value);
+            start_value = 32'd100;
+        end
+
+        $display("\n>>> APB Downcounter <<<");
+        $display(">>> Setting counter: %0d", start_value);
+
+        // Инициализация
+        PRESETn = 0;
         PSEL = 0; PENABLE = 0; PWRITE = 0;
         PADDR = '0; PWDATA = '0;
         ctrl_val = '0;
         max_val = '0;
         cur_val = '0;
 
-        repeat (2) @(posedge PCLK); //ждем два такта со сбросом
+        repeat (2) @(posedge PCLK);
         PRESETn = 1;
-        repeat (2) @(posedge PCLK); //ждем еще два такта (чтобы DUT стабилизировался)
+        repeat (2) @(posedge PCLK);
         $display("-------------------------- Start of test --------------------------");
 
-        //запись MAX = 10
-        apb_write('h4, 32'd10);
+        //запись MAX = введенное значение
+        apb_write('h4, start_value);
         apb_read('h4, max_val);
 
         //CTRL (ENABLE + LOAD) → CUR=MAX
@@ -114,7 +136,7 @@ module tb;
 
         // Наблюдаем работу счётчика
         $display("-------------------------- Counting process --------------------------");
-        repeat (11) begin
+        repeat (start_value + 1) begin
             @(posedge PCLK);
             apb_read('h8, tmp);
             apb_read('h0, ctrl_val);
@@ -126,8 +148,9 @@ module tb;
         apb_write('h0, 32'd0);
         apb_read('h0, ctrl_val);
         apb_read('h8, cur_val);
-        //$display("=== End of test ===");
-        #20;    //Ждём 20 нс
+
+        #20;
+        $display("-------------------------- End of test --------------------------");
         $finish;
     end
 
