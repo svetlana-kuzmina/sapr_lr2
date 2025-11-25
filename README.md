@@ -16,3 +16,11 @@ vvp tb.vvp +START=25
 
 **How to view waveforms**  
 gtkwave apb_downcounter.vcd
+
+**How to control counter**  
+Create file command.txt  
+Write:   
+PAUSE  
+RESUME  
+RESET  
+and save file  

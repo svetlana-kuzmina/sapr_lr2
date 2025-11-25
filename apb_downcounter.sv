@@ -1,71 +1,66 @@
-module apb_downcounter #(
-    parameter ADDR_WIDTH = 4,   // ширина адреса (можно хранить до 16 адресов)
-    parameter DATA_WIDTH = 32   // ширина данных в битах
-)(
-    input  logic                  PCLK,      // тактовый сигнал
-    input  logic                  PRESETn,   // сброс (активный низкий)
-    input  logic                  PSEL,      // выбор устройства
-    input  logic                  PENABLE,   // сигнал активности
-    input  logic                  PWRITE,    // 1 = запись, 0 = чтение
-    input  logic [ADDR_WIDTH-1:0] PADDR,     // адрес регистра
-    input  logic [DATA_WIDTH-1:0] PWDATA,    // данные для записи
+`timescale 1ns/1ps
 
-    output logic [DATA_WIDTH-1:0] PRDATA,    // данные для чтения
-    output logic                  PREADY,    // готовность 
-    output logic                  PSLVERR    // флаг ошибки
+module apb_downcounter #(
+    parameter ADDR_WIDTH = 4,
+    parameter DATA_WIDTH = 32
+)(
+    input  logic                  PCLK,
+    input  logic                  PRESETn,
+    input  logic                  PSEL,
+    input  logic                  PENABLE,
+    input  logic                  PWRITE,
+    input  logic [ADDR_WIDTH-1:0] PADDR,
+    input  logic [DATA_WIDTH-1:0] PWDATA,
+    output logic [DATA_WIDTH-1:0] PRDATA,
+    output logic                  PREADY,
+    output logic                  PSLVERR
 );
 
-    //локальные константы - адреса регистров
     localparam logic [ADDR_WIDTH-1:0] ADDR_CTRL = 'h0;
     localparam logic [ADDR_WIDTH-1:0] ADDR_MAX  = 'h4;
     localparam logic [ADDR_WIDTH-1:0] ADDR_CUR  = 'h8;
 
-    // Внутренние регистры - хранят данные
-    logic [DATA_WIDTH-1:0] reg_ctrl;   // RW 0x00 - CTRL : управляющий регистр (бит0=ENABLE, бит1=LOAD)
-    logic [DATA_WIDTH-1:0] reg_max;    // RW 0x04 - MAX  : максимальное значение счётчика
-    logic [DATA_WIDTH-1:0] reg_cur;    // RO 0x08 - CUR  : текущее значение счётчика
+    logic [DATA_WIDTH-1:0] reg_ctrl;
+    logic [DATA_WIDTH-1:0] reg_max;
+    logic [DATA_WIDTH-1:0] reg_cur;
+    logic [19:0] tick; // Увеличиваем размер счетчика для большей задержки
 
-    logic [3:0] tick; // внутренний счётчик тактов (будет считать такты PCLK, чтобы CUR уменьшался не каждый такт)
+    assign PREADY  = 1'b1;
+    assign PSLVERR = 1'b0;
 
-    assign PREADY  = 1'b1;  // устройство всегда готово
-    assign PSLVERR = 1'b0;  // ошибок нет
-
-    // Основная логика
     always_ff @(posedge PCLK or negedge PRESETn) begin
-        if (!PRESETn) begin // Сброс всех регистров
+        if (!PRESETn) begin
             reg_ctrl <= '0;
             reg_max  <= '0;
             reg_cur  <= '0;
+            tick <= 0;
         end else begin
-            if (PSEL && PENABLE && PWRITE) begin    // Запись данных (apb write)
+            if (PSEL && PENABLE && PWRITE) begin
                 case (PADDR)
                     ADDR_CTRL: begin
                         reg_ctrl <= PWDATA;
-                        if (PWDATA[1]) begin    // Если бит LOAD = 1, загрузим MAX
+                        if (PWDATA[1]) begin
                             reg_cur <= reg_max;
                         end
                     end
-                    ADDR_MAX: begin
-                        reg_max <= PWDATA;
-                    end
+                    ADDR_MAX: reg_max <= PWDATA;
                     default: ;
                 endcase
             end
 
-            // обратный счёт
-            if (reg_ctrl[0] && !reg_ctrl[1]) begin  // Если ENABLE = 1 и LOAD = 0 — уменьшаем счётчик
+            if (reg_ctrl[0]) begin
                 tick <= tick + 1;
-                if (tick == 4'd9) begin   // уменьшаем CUR каждые 11 тактов
-                    if (reg_cur != 0) reg_cur <= reg_cur - 1;
-                        tick <= 0;
-                    end
+                if (tick == 20'd99999) begin   // МЕДЛЕННО - каждые 100000 тактов!
+                    if (reg_cur > 0) 
+                        reg_cur <= reg_cur - 1;
+                    tick <= 0;
+                end
             end else begin
-                tick <= 0; // если ENABLE=0 или LOAD=1, сбрасываем счётчик тактов
+                tick <= 0;
             end
         end
     end
 
-    // чтение (APB read)
     always_comb begin
         PRDATA = '0;
         if (PSEL && PENABLE && !PWRITE) begin

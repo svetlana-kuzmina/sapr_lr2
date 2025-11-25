@@ -1,10 +1,10 @@
 `timescale 1ns/1ps
+
 module tb;
 
     localparam ADDR_WIDTH = 4;
     localparam DATA_WIDTH = 32;
 
-    // APB сигналы
     logic PCLK;
     logic PRESETn;
     logic PSEL, PENABLE, PWRITE;
@@ -13,7 +13,6 @@ module tb;
     logic [DATA_WIDTH-1:0] PRDATA;
     logic PREADY, PSLVERR;
 
-    //DUT (Device Under Test) .сигнал_модуля(сигнал_tb)
     apb_downcounter #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH)
@@ -30,19 +29,16 @@ module tb;
         .PSLVERR(PSLVERR)
     );
 
-    // тактовый сигнал
     initial begin
         PCLK = 0;
-        forever #5 PCLK = ~PCLK; // период 10 нс → частота 100 МГц
+        forever #5 PCLK = ~PCLK;
     end
 
-    // Dump waveform for GTKWave
     initial begin
         $dumpfile("apb_downcounter.vcd");
         $dumpvars(0, tb);
     end
 
-    // APB запись: сначала setup phase (PSEL=1, PENABLE=0), потом enable phase (PENABLE=1)
     task apb_write(input logic [ADDR_WIDTH-1:0] addr, input logic [DATA_WIDTH-1:0] data);
     begin
         PSEL    = 1;
@@ -55,109 +51,111 @@ module tb;
         @(posedge PCLK);
         PSEL    = 0;
         PENABLE = 0;
-        PWRITE  = 0;
-        PADDR   = '0;
-        PWDATA  = '0;
         @(posedge PCLK);
     end
     endtask
 
-    task apb_read(input logic [ADDR_WIDTH-1:0] addr, output logic [DATA_WIDTH-1:0] data_out);
-    begin
-        PSEL    = 1;
-        PENABLE = 0;
-        PWRITE  = 0;
-        PADDR   = addr;
-        @(posedge PCLK);
-        PENABLE = 1;
-        @(posedge PCLK);
-        data_out = PRDATA;
-        PSEL    = 0;
-        PENABLE = 0;
-        PADDR   = '0;
-        @(posedge PCLK);
-    end
-    endtask
+    // Функция проверки команд из файла
+    function string check_command();
+        integer file;
+        string command;
+        begin
+            file = $fopen("command.txt", "r");
+            if (file != 0) begin
+                if ($fscanf(file, "%s", command) == 1) begin
+                    $fclose(file);
+                    // Очищаем файл после чтения команды
+                    file = $fopen("command.txt", "w");
+                    $fclose(file);
+                    return command;
+                end
+                $fclose(file);
+            end
+            return "";
+        end
+    endfunction
 
-    // Хранят данные, прочитанные с помощью apb_read
-    logic [31:0] ctrl_val;
-    logic [31:0] max_val;
-    logic [31:0] cur_val;
-    logic [31:0] tmp;
-
-    // Основной тест
     initial begin
-        logic [31:0] start_value;
-
-        // Получение значения из командной строки
-        if ($value$plusargs("START=%d", start_value)) begin
-            $display(">>> Value from command line: %0d", start_value);
-        end else begin
-            // Значение по умолчанию, если аргумент не указан
-            start_value = 32'd15;
-            $display(">>> Argument not entered. Using default value: %0d", start_value);
-            $display(">>> For using another value - enter: vvp tb.vvp +START=value");
-        end
-
-        // Проверка корректности значения
-        if (start_value > 1000) begin
-            $display(">>> WARNING: valuse %0d very big, using 100", start_value);
-            start_value = 32'd100;
-        end
-
-        $display("\n>>> APB Downcounter <<<");
-        $display(">>> Setting counter: %0d", start_value);
+        logic [31:0] start_value = 30; //начальное значение
+        string command;
+        integer counter_changes = 0;
+        
+        $display("================================================");
+        $display(">>> INTERACTIVE COUNTER CONTROL");
+        $display(">>> HOW TO USE:");
+        $display(">>> 2. Create file 'command.txt' in this folder");
+        $display(">>> 3. Write one of these commands in the file:");
+        $display(">>>    PAUSE  - stop counter");
+        $display(">>>    RESUME - continue counter"); 
+        $display(">>>    RESET  - restart from 10");
+        $display(">>> 4. Save the file - counter will react!");
+        $display("================================================");
 
         // Инициализация
         PRESETn = 0;
         PSEL = 0; PENABLE = 0; PWRITE = 0;
         PADDR = '0; PWDATA = '0;
-        ctrl_val = '0;
-        max_val = '0;
-        cur_val = '0;
-
         repeat (2) @(posedge PCLK);
         PRESETn = 1;
         repeat (2) @(posedge PCLK);
-        $display("-------------------------- Start of test --------------------------");
 
-        //запись MAX = введенное значение
+        // Запускаем счетчик
+        $display(">>> STARTING COUNTER");
         apb_write('h4, start_value);
-        apb_read('h4, max_val);
+        apb_write('h0, 32'd3); // LOAD
+        apb_write('h0, 32'd1); // ENABLE
 
-        //CTRL (ENABLE + LOAD) → CUR=MAX
-        apb_write('h0, 32'd3);
-        apb_read('h0, ctrl_val);
-        apb_read('h8, cur_val);
-
-        // Снимаем LOAD, оставляем ENABLE → начинается обратный счёт
-        apb_write('h0, 32'd1);
-        apb_read('h0, ctrl_val);
-
-        // Наблюдаем работу счётчика
-        $display("-------------------------- Counting process --------------------------");
-        repeat (start_value + 1) begin
-            @(posedge PCLK);
-            apb_read('h8, tmp);
-            apb_read('h0, ctrl_val);
-            apb_read('h4, max_val);
+        // Создаем пустой файл команд
+        begin
+            integer file = $fopen("command.txt", "w");
+            $fclose(file);
         end
 
-        // Отключаем счётчик
-        $display("-------------------------- Disable counting (CTRL = 0)--------------------------");
-        apb_write('h0, 32'd0);
-        apb_read('h0, ctrl_val);
-        apb_read('h8, cur_val);
+        // Главный цикл - работает 2 минуты
+        while ($time < 120000000000) begin // 2 minutes
+            // Проверяем команду каждые 100,000 тактов (быстро)
+            command = check_command();
+            
+            if (command == "PAUSE") begin
+                $display(">>> COMMAND RECEIVED: PAUSE");
+                apb_write('h0, 32'd0);
+                $display(">>> COUNTER PAUSED at value %0d", dut.reg_cur);
+            end
+            else if (command == "RESUME") begin
+                $display(">>> COMMAND RECEIVED: RESUME");
+                apb_write('h0, 32'd1);
+                $display(">>> COUNTER RESUMED from value %0d", dut.reg_cur);
+            end
+            else if (command == "RESET") begin
+                $display(">>> COMMAND RECEIVED: RESET");
+                apb_write('h0, 32'd3);
+                apb_write('h0, 32'd1);
+                $display(">>> COUNTER RESET");
+            end
+            
+            // Небольшая задержка между проверками команд
+            repeat(100000) @(posedge PCLK);
+        end
 
-        #20;
-        $display("-------------------------- End of test --------------------------");
+        $display(">>> SIMULATION FINISHED (2 minutes passed)");
         $finish;
     end
 
-    // выводим значения сигналов при любом их изменении
+    // Процесс для отображения изменений счетчика
     initial begin
-        $display("-------------------------- Downcounter Monitor --------------------------");
-        $monitor("PSEL=%b  PENABLE=%b  PWRITE=%b  PADDR=0x%0h  PWDATA=%0d  PRDATA=%0d  CTRL=%0d  MAX=%0d  CUR=%0d", PSEL, PENABLE, PWRITE, PADDR, PWDATA, PRDATA, ctrl_val, max_val, tmp);
+        logic [31:0] last_displayed = 0;
+        forever begin
+            @(posedge PCLK);
+            if (dut.reg_cur != last_displayed) begin
+                if (dut.reg_ctrl[0]) begin
+                    //$display("    [Time: %0t] Counter: %0d", $time, dut.reg_cur);
+                    $display("    Counter: %0d", dut.reg_cur);
+                end else begin
+                    $display("    [PAUSED at %0d]", last_displayed);
+                end
+                last_displayed = dut.reg_cur;
+            end
+        end
     end
 
 endmodule
