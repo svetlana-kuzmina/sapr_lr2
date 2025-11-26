@@ -79,6 +79,7 @@ module tb;
         logic [31:0] start_value = 30; //начальное значение
         string command;
         integer counter_changes = 0;
+        bit stop_requested = 0;
 
         // Чтение параметра из командной строки
         if ($value$plusargs("START=%d", start_value)) begin
@@ -95,6 +96,7 @@ module tb;
         $display(">>>    PAUSE  - stop counter");
         $display(">>>    RESUME - continue counter"); 
         $display(">>>    RESET  - restart from 10");
+        $display(">>>    STOP   - exit simulation gracefully");
         $display(">>> 4. Save the file - counter will react!");
         $display("================================================");
 
@@ -119,7 +121,7 @@ module tb;
         end
 
         // Главный цикл - работает 2 минуты
-        while ($time < 120000000000) begin // 2 minutes
+        while ($time < 120000000000 && !stop_requested) begin // 2 minutes
             // Проверяем команду каждые 100,000 тактов (быстро)
             command = check_command();
             
@@ -139,12 +141,22 @@ module tb;
                 apb_write('h0, 32'd1);
                 $display(">>> COUNTER RESET");
             end
+            else if (command == "STOP") begin
+                $display(">>> COMMAND RECEIVED: STOP");
+                $display(">>> GRACEFUL SHUTDOWN");
+                stop_requested = 1;
+            end
             
             // Небольшая задержка между проверками команд
             repeat(100000) @(posedge PCLK);
         end
 
-        $display(">>> SIMULATION FINISHED (2 minutes passed)");
+        // $display(">>> SIMULATION FINISHED (2 minutes passed)");
+        if (stop_requested) begin
+            $display(">>> SIMULATION STOPPED BY USER COMMAND");
+        end else begin
+            $display(">>> SIMULATION FINISHED (2 minutes passed)");
+        end
         $finish;
     end
 
