@@ -79,6 +79,13 @@ module tb;
         logic [31:0] start_value = 30; //начальное значение
         string command;
         integer counter_changes = 0;
+
+        // Чтение параметра из командной строки
+        if ($value$plusargs("START=%d", start_value)) begin
+            $display(">>> USING START VALUE FROM COMMAND LINE: %0d", start_value);
+        end else begin
+            $display(">>> USING DEFAULT START VALUE: %0d", start_value);
+        end
         
         $display("================================================");
         $display(">>> INTERACTIVE COUNTER CONTROL");
